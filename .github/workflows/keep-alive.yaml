@@ -2,16 +2,34 @@ name: Keep Supabase Alive
 
 on:
   schedule:
-    - cron: '0 13 * * *'  # runs daily at 1pm UTC — no need to touch this
-  workflow_dispatch:        # lets you also trigger it manually from GitHub if you ever want to test it
+    - cron: '0 6,13,20 * * *'  # runs 3x a day - safety margin if one run gets skipped
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed so this workflow can commit its own log entry back to the repo
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase database
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Write heartbeat to Supabase database
         run: |
-          curl -s -o /dev/null -w "Ping sent, response code: %{http_code}\n" \
-            "https://jtljqmcdmdenfvxktnty.supabase.co/rest/v1/expenses?select=id&limit=1" \
+          curl -s -o /dev/null -w "Heartbeat sent, response code: %{http_code}\n" \
+            -X POST "https://jtljqmcdmdenfvxktnty.supabase.co/rest/v1/heartbeat" \
             -H "apikey: sb_publishable_MOH2ra7M8iMuxmty7dWngQ_2a9a02Es" \
-            -H "Authorization: Bearer sb_publishable_MOH2ra7M8iMuxmty7dWngQ_2a9a02Es"
+            -H "Authorization: Bearer sb_publishable_MOH2ra7M8iMuxmty7dWngQ_2a9a02Es" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: resolution=merge-duplicates" \
+            -d "{\"id\": 1, \"pinged_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+
+      - name: Log run and commit back to repo
+        run: |
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) - ping sent" >> heartbeat.log
+          git config user.name "keep-alive-bot"
+          git config user.email "actions@github.com"
+          git add heartbeat.log
+          git commit -m "Heartbeat: $(date -u +%Y-%m-%d)" || echo "Nothing to commit"
+          git push
